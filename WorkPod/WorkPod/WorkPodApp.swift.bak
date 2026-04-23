@@ -1,0 +1,17 @@
+//
+//  WorkPodApp.swift
+//  WorkPod
+//
+//  Created by lemanli on 2026/4/10.
+//
+
+import SwiftUI
+
+@main
+struct WorkPodApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}

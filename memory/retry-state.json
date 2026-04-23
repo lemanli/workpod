@@ -1,0 +1,7 @@
+{
+  "lastTransientFailureAt": null,
+  "lastRecoveryAttemptAt": null,
+  "consecutiveTransientRecoveryFailures": 0,
+  "currentCooldownMinutes": 2,
+  "lastRecoveryOutcome": "idle"
+}
