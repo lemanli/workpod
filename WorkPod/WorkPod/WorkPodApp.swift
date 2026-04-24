@@ -7,6 +7,12 @@ struct WorkPodApp: App {
     init() {
         // 确保应用在顶部菜单栏显示 (Regular 模式会显示应用菜单)
         NSApplication.shared.setActivationPolicy(.regular)
+        
+        // 强制初始化核心管理器
+        _ = StatusBarManager.shared
+        _ = InputManager.shared
+        WindowManager.shared.checkAccessibilityPermissions()
+        WindowManager.shared.startMonitoring()
     }
     
     var body: some Scene {

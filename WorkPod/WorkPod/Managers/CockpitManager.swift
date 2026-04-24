@@ -18,7 +18,6 @@ class CockpitManager: ObservableObject {
         loadCockpits()
         ensureDefaultCockpit()
         setupApplicationObserver()
-        setupMemberRefreshTimer()
     }
 
     private func ensureDefaultCockpit() {
@@ -67,42 +66,6 @@ class CockpitManager: ObservableObject {
                   let app = notification.userInfo?["NSWorkspaceApplicationUserInfoKey"] as? NSRunningApplication else { return }
             
             self.handleAppTermination(app: app)
-        }
-    }
-    
-    private func setupMemberRefreshTimer() {
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            // 移至后台执行，避免在主线程进行成员过滤逻辑
-            DispatchQueue.global(qos: .utility).async {
-                self?.refreshActiveCockpitMembers()
-            }
-        }
-    }
-    
-    private func refreshActiveCockpitMembers() {
-        guard let activeId = activeCockpitId,
-              var cockpit = cockpit(with: activeId) else { return }
-        
-        // 此时在后台队列执行，可以直接调用 WindowManager.shared.windowList (读取)
-        let currentWindows = WindowManager.shared.windowList
-        let originalCount = cockpit.members.count
-        
-        var updatedMembers: [Member] = []
-        for member in cockpit.members {
-            let hasWindow = currentWindows.contains(where: { $0.bundleId == member.bundleId })
-            if hasWindow {
-                updatedMembers.append(member)
-            } else {
-                print(" 窗口已关闭，从工作舱中移除成员：\(member.name) [\(member.bundleId)]")
-            }
-        }
-        
-        cockpit.members = updatedMembers
-        
-        if cockpit.members.count != originalCount {
-            DispatchQueue.main.async {
-                self.updateCockpit(cockpit)
-            }
         }
     }
     
@@ -366,14 +329,25 @@ class CockpitManager: ObservableObject {
         guard !members.isEmpty else { return }
         
         let currentFrontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let currentIndex = members.firstIndex(where: { $0.bundleId == currentFrontmostBundleId }) ?? 0
+        
+        // 🚀 修复：如果当前应用不是成员，将其视为在成员列表之前 (index -1)，
+        // 这样 direction = 1 时会正确进入 members[0]。
+        let currentIndex: Int
+        if let foundIndex = members.firstIndex(where: { $0.bundleId == currentFrontmostBundleId }) {
+            currentIndex = foundIndex
+        } else {
+            currentIndex = -1
+        }
         
         var nextIndex = currentIndex + direction
         if nextIndex < 0 { nextIndex = members.count - 1 }
         if nextIndex >= members.count { nextIndex = 0 }
         
         let nextMember = members[nextIndex]
-        print("🔄 Switching to next member: \\(nextMember.name) [\\(nextMember.bundleId)]")
+        print("🔄 Switching to next member: \(nextMember.name) [\(nextMember.bundleId)]")
+        
+        // 增加 Token 确保 AX 操作的唯一性和顺序性
+        activationToken += 1
         windowManager.updateToken(activationToken)
         windowManager.bringToFront(bundleId: nextMember.bundleId, token: activationToken)
     }

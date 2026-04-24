@@ -50,10 +50,11 @@ class StatusBarManager: ObservableObject {
     }
     
     @objc private func toggleMenu() {
-        refreshMenu()
-        // In macOS, setting statusItem.menu automatically handles the popup when the button is clicked.
-        print("StatusBar: Menu updated and displayed")
+        // 立即刷新，不要延迟，确保用户点击时看到的是最新内容
+        refreshMenu(immediate: true)
+        print("StatusBar: Menu updated immediately and displayed")
     }
+
     
     private func applyMenu() {
         statusItem?.menu = menu
@@ -79,79 +80,93 @@ class StatusBarManager: ObservableObject {
     
     private var refreshWorkItem: DispatchWorkItem?
     
-    func refreshMenu() {
+    func refreshMenu(immediate: Bool = false) {
         // 1. 绝对禁止在激活期间刷新菜单，防止触发 FBSScene 错误
         if CockpitManager.shared.isActivating {
             print("StatusBarManager: Skipping refresh during activation")
             return
         }
         
+        print("StatusBarManager: refreshing menu. activeCockpitId: \(CockpitManager.shared.activeCockpitId ?? "nil"), immediate: \(immediate)")
+        
+        // 如果是立即刷新，直接执行
+        if immediate {
+            executeMenuUpdate()
+            return
+        }
+
         // 取消之前的刷新请求，实现简单的防抖 (Debounce)
         refreshWorkItem?.cancel()
         
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            
-            self.menu.removeAllItems()
-            
-            if let activeId = CockpitManager.shared.activeCockpitId,
-               let cockpit = CockpitManager.shared.cockpit(with: activeId) {
-                
-                // 场景 A: 有活跃工作舱 -> 显示该舱内的应用列表
-                let headerItem = NSMenuItem(title: "当前舱: \(cockpit.name)", action: nil, keyEquivalent: "")
-                headerItem.attributedTitle = NSAttributedString(string: "Current: \(cockpit.name)", attributes: [
-                    .foregroundColor: NSColor.secondaryLabelColor,
-                    .font: NSFont.systemFont(ofSize: 11)
-                ])
-                headerItem.isEnabled = false
-                self.menu.addItem(headerItem)
-                
-                self.menu.addItem(NSMenuItem.separator())
-                
-                for member in cockpit.members {
-                    let appName = WindowManager.shared.getAppName(for: member.bundleId)
-                    let item = NSMenuItem(title: appName, action: #selector(self.menuItemClicked(_:)), keyEquivalent: "")
-                    item.representedObject = member.bundleId
-                    item.target = self
-                    self.menu.addItem(item)
-                }
-                
-                self.menu.addItem(NSMenuItem.separator())
-                
-                let switchCockpitItem = NSMenuItem(title: "切换工作舱...", action: #selector(self.showCockpitList), keyEquivalent: "s")
-                switchCockpitItem.target = self
-                self.menu.addItem(switchCockpitItem)
-                
-            } else {
-                // 场景 B: 没有活跃工作舱 -> 显示所有可用工作舱列表
-                let headerItem = NSMenuItem(title: "请选择工作舱", action: nil, keyEquivalent: "")
-                headerItem.attributedTitle = NSAttributedString(string: "Select a Cockpit", attributes: [
-                    .foregroundColor: NSColor.secondaryLabelColor,
-                    .font: NSFont.systemFont(ofSize: 11)
-                ])
-                headerItem.isEnabled = false
-                self.menu.addItem(headerItem)
-                
-                let allCockpits = CockpitManager.shared.cockpits
-                if allCockpits.isEmpty {
-                    let emptyItem = NSMenuItem(title: "尚未创建工作舱", action: nil, keyEquivalent: "")
-                    emptyItem.isEnabled = false
-                    self.menu.addItem(emptyItem)
-                } else {
-                    for cockpit in allCockpits {
-                        let item = NSMenuItem(title: cockpit.name, action: #selector(self.activateCockpitAction(_:)), keyEquivalent: "")
-                        item.representedObject = cockpit.id
-                        item.target = self
-                        self.menu.addItem(item)
-                    }
-                }
-            }
-            
-            self.applyMenu()
+            self?.executeMenuUpdate()
         }
         refreshWorkItem = workItem
         // 增加延迟到 0.3 秒，确保 UI 场景完全稳定后再刷新菜单
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
+    }
+    
+    private func executeMenuUpdate() {
+        print("StatusBarManager: executing menu update")
+        self.menu.removeAllItems()
+        
+        if let activeId = CockpitManager.shared.activeCockpitId,
+           let cockpit = CockpitManager.shared.cockpit(with: activeId) {
+            
+            print("StatusBarManager: Scenario A - Active cockpit: \(cockpit.name)")
+            // 场景 A: 有活跃工作舱 -> 显示该舱内的应用列表
+            let headerItem = NSMenuItem(title: "当前舱: \(cockpit.name)", action: nil, keyEquivalent: "")
+            headerItem.attributedTitle = NSAttributedString(string: "Current: \(cockpit.name)", attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.systemFont(ofSize: 11)
+            ])
+            headerItem.isEnabled = false
+            self.menu.addItem(headerItem)
+            
+            self.menu.addItem(NSMenuItem.separator())
+            
+            for member in cockpit.members {
+                let appName = WindowManager.shared.getAppName(for: member.bundleId)
+                let item = NSMenuItem(title: appName, action: #selector(self.menuItemClicked(_:)), keyEquivalent: "")
+                item.representedObject = member.bundleId
+                item.target = self
+                self.menu.addItem(item)
+            }
+            
+            self.menu.addItem(NSMenuItem.separator())
+            
+            let switchCockpitItem = NSMenuItem(title: "切换工作舱...", action: #selector(self.showCockpitList), keyEquivalent: "s")
+            switchCockpitItem.target = self
+            self.menu.addItem(switchCockpitItem)
+            
+        } else {
+            print("StatusBarManager: Scenario B - No active cockpit")
+            // 场景 B: 没有活跃工作舱 -> 显示所有可用工作舱列表
+            let headerItem = NSMenuItem(title: "请选择工作舱", action: nil, keyEquivalent: "")
+            headerItem.attributedTitle = NSAttributedString(string: "Select a Cockpit", attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.systemFont(ofSize: 11)
+            ])
+            headerItem.isEnabled = false
+            self.menu.addItem(headerItem)
+            
+            let allCockpits = CockpitManager.shared.cockpits
+            if allCockpits.isEmpty {
+                let emptyItem = NSMenuItem(title: "尚未创建工作舱", action: nil, keyEquivalent: "")
+                emptyItem.isEnabled = false
+                self.menu.addItem(emptyItem)
+            } else {
+                for cockpit in allCockpits {
+                    let item = NSMenuItem(title: cockpit.name, action: #selector(self.activateCockpitAction(_:)), keyEquivalent: "")
+                    item.representedObject = cockpit.id
+                    item.target = self
+                    self.menu.addItem(item)
+                }
+            }
+        }
+        
+        self.applyMenu()
+        print("StatusBarManager: menu apply completed")
     }
     
     @objc private func showCockpitList() {
